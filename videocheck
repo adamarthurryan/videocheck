@@ -1,0 +1,148 @@
+#!/usr/bin/python
+
+from subprocess32 import check_output, STDOUT
+import sys
+import re
+import math
+
+LOG_INFO = False
+
+def main():
+    for arg in sys.argv[1:]:
+        print '# ', arg
+
+        try:
+            videoprobe(arg)
+        except:
+            log_error("Invalid video file")
+        else:
+            mediainfo(arg)
+            silencedetect(arg)
+            blackdetect(arg)
+
+        print ''
+
+# this function should throw an exception if the video file is not valid
+def videoprobe(filename):
+    check_output(["ffprobe", filename],  stderr=STDOUT)
+
+def mediainfo(filename):
+    output = check_output(["ffprobe", filename],  stderr=STDOUT)
+
+
+    durations_match = re.search("Duration:\ (\d\d):(\d\d):(\d\d)\.(\d+)", output)
+    if (not durations_match):
+        log_error("Video has no duration")
+
+    else:
+        duration_h=int(durations_match.group(1))
+        duration_m=int(durations_match.group(2))
+        duration_s=int(durations_match.group(3))
+
+        if (duration_h>0):
+            log_info(str.format("Duration: {0}h {1}m {2}s", duration_h, duration_m, duration_s))
+        else:
+            log_info(str.format("Duration: {0}m {1}s", duration_m, duration_s))
+
+
+    video_match = re.search("Video: (.*)", output)
+    if (not video_match):
+        log_error("No video channel")
+
+    else:
+        video_info = video_match.group(1)
+
+        log_info(str.format("Video Encoding: {0}", video_info))
+
+        res = re.search("\d\d+x\d\d+", video_info).group(0)
+        h264 = re.search("h264", video_info)
+
+        if (not h264):
+            log_error(str.format("Invalid video encoding (not h264): {0}", video_info))
+
+        if (res!="1280x800" and res!="1280x720"):
+            log_error(str.format("Invalid video resolution (not 1280x720 or 1280x800): {0}", res))
+
+
+    audio_match = re.search("Audio: (.*)", output)
+    if (not audio_match):
+        log_error("No audio channel")
+    else :
+        audio_info = audio_match.group(1)
+        log_info(str.format("Audio Encoding: {0}", audio_info))
+
+
+def silencedetect(filename):
+    SILENCEDETECT_PARAMS = "noise=-60dB:d=5"
+
+    output = check_output(["ffmpeg", "-i", filename, "-af", "silencedetect="+SILENCEDETECT_PARAMS, "-f", "null", "-"],  stderr=STDOUT)
+    lines = re.findall(".*silencedetect.*", output)
+
+    # silencedetect information is scattered across multiple lines
+    # so we'll accumulate silence period information into a stack
+    silences = []
+    for line in lines:
+
+        if (re.search("silence_start", line)) :
+            start = math.floor(float(re.search("silence_start:\ (-?\d+\.\d+)", line).group(1)))
+            silences.append({"start": start})
+
+        if (re.search("silence_end", line)) :
+            end = math.ceil(float(re.search("silence_end: (-?\d+\.\d+)", line).group(1)))
+            duration = math.ceil(float(re.search("silence_duration: (-?\d+\.\d+)", line).group(1)))
+            silence = silences.pop()
+            silence["end"]=end
+            silence["duration"]=duration
+            silences.append(silence)
+
+
+    # a stack with one silence and no end is characteristic of a silent video
+    if (len(silences)==1 and (not "end" in silences[0])):
+        log_error("Silent video")
+        return
+
+    # after all the lines have been read, read through the stack and display the results
+    for silence in silences:
+        # we can ignore silences at the end of the video?
+        start = silence["start"]
+
+        start_mins = str.format("{0:02d}:{1:02d}", int(start/60), int(start%60))
+
+        if ("end" in silence):
+            end = silence["end"]
+            end_mins = str.format("{0:02d}:{1:02d}", int(end/60), int(end%60))
+
+            duration = silence["duration"]
+
+            log_error(str.format("Silent audio region found: from {0} to {1} (total {2} seconds)", start_mins, end_mins, int(duration)))
+        else:
+            log_error(str.format("Silent audio region found: from {0} to end", start_mins))
+
+
+
+def blackdetect(filename):
+    BLACKDETECT_PARAMS = "pix_th=0.00:d=1"
+
+    output = check_output(["ffmpeg", "-i", filename, "-vf", "blackdetect="+BLACKDETECT_PARAMS, "-an", "-f", "null", "-"],  stderr=STDOUT)
+    lines = re.findall(".*blackdetect.*", output)
+
+    for line in lines:
+        start = math.floor(float(re.search("black_start:(-?\d+\.\d+)", line).group(1)))
+        end = math.ceil(float(re.search("black_end:(-?\d+\.\d+)", line).group(1)))
+        duration = math.ceil(float(re.search("black_duration:(-?\d+\.\d+)", line).group(1)))
+
+        start_mins = str.format("{0:2d}:{1:2d}", int(start/60), int(start%60))
+        end_mins = str.format("{0:2d}:{1:2d}", int(end/60), int(end%60))
+
+        log_error(str.format("Black video region found: from {0} to {1} (total {2} seconds)", start_mins, end_mins, int(duration)))
+
+def log_error(msg):
+    print " - ! ", msg
+
+
+def log_info(msg):
+    if (LOG_INFO):
+        print " - ", msg
+
+
+main()
