@@ -18,6 +18,20 @@ def main():
         if arg == "-v":
             log_info = True
 
+        elif arg == "--help" or arg == "-?":
+            print "Usage: videocheck [OPTION]... [FILE]..."
+            print "Check video FILEs for formatting according to Tuts+ course video standards."
+            print "Test encoding, resolution, presence of audio and video channels."
+            print "Also detect black regions in the video channel and silent regions in the audio channel."
+            print ""
+            print "Options:"
+            print "  -v            verbose output, output video encoding info"
+            print "  -?, --help   display this message"
+            print ""
+            print "Example:"
+            print "  videocheck *.mp4"
+            return
+
         # files
         else:
             print '#', arg
