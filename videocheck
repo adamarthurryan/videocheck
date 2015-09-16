@@ -5,23 +5,36 @@ import sys
 import re
 import math
 
-LOG_INFO = False
+log_info = False
+
+
 
 def main():
+    # process arguments
     for arg in sys.argv[1:]:
-        print '# ', arg
 
-        try:
-            probeoutput=videoprobe(arg)
-        except:
-            log_error("Invalid video file")
+        # flags
+        # Since flags are processed along with the video files (instead of as a separate loop), flags will only take effect for subsequent files.
+        if arg == "-v":
+            log_info = True
+
+        # files
         else:
-            if (mediainfo(arg, probeoutput)):
-                filteroutput=runfilters(arg)
-                silencedetect(arg, filteroutput)
-                blackdetect(arg, filteroutput)
+            print '#', arg
+            print ''
 
-        print ''
+            try:
+                probeoutput=videoprobe(arg)
+            except:
+                log_error("Invalid video file")
+            else:
+                if (mediainfo(arg, probeoutput)):
+                    filteroutput=runfilters(arg)
+                    silencedetect(arg, filteroutput)
+                    blackdetect(arg, filteroutput)
+
+            print ''
+            print ''
 
 # this function should throw an exception if the video file is not valid
 def videoprobe(filename):
@@ -156,12 +169,12 @@ def blackdetect(filename, output):
         log_error(str.format("Black video region found: from {0} to {1} (total {2} seconds)", start_mins, end_mins, int(duration)))
 
 def log_error(msg):
-    print " - ! ", msg
+    print " - (error)", msg
 
 
 def log_info(msg):
-    if (LOG_INFO):
-        print " - ", msg
+    if (log_info):
+        print " - (info) ", msg
 
 
 main()
