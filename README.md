@@ -10,7 +10,8 @@ Also detect black regions in the video channel and silent regions in the audio c
 
 ## Options
 
----|---
+flag |
+- | -
 `-v`          | verbose output, output video encoding info
 `-?, --help`  | display usage information
 
