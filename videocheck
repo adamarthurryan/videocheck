@@ -12,24 +12,27 @@ def main():
         print '# ', arg
 
         try:
-            videoprobe(arg)
+            probeoutput=videoprobe(arg)
         except:
             log_error("Invalid video file")
         else:
-            mediainfo(arg)
-            silencedetect(arg)
-            blackdetect(arg)
+            if (mediainfo(arg, probeoutput)):
+                filteroutput=runfilters(arg)
+                silencedetect(arg, filteroutput)
+                blackdetect(arg, filteroutput)
 
         print ''
 
 # this function should throw an exception if the video file is not valid
 def videoprobe(filename):
-    check_output(["ffprobe", filename],  stderr=STDOUT)
+    probeoutput = check_output(["ffprobe", filename],  stderr=STDOUT)
+    return probeoutput
 
-def mediainfo(filename):
-    output = check_output(["ffprobe", filename],  stderr=STDOUT)
+# gets basic information about the video file and checks for format errors
+# the "output" parameter is the output of the ffprobe command run on the target video file
+def mediainfo(filename, output):
 
-
+    # process duration information
     durations_match = re.search("Duration:\ (\d\d):(\d\d):(\d\d)\.(\d+)", output)
     if (not durations_match):
         log_error("Video has no duration")
@@ -45,9 +48,11 @@ def mediainfo(filename):
             log_info(str.format("Duration: {0}m {1}s", duration_m, duration_s))
 
 
+    # process video format information
     video_match = re.search("Video: (.*)", output)
     if (not video_match):
         log_error("No video channel")
+        return False
 
     else:
         video_info = video_match.group(1)
@@ -64,18 +69,32 @@ def mediainfo(filename):
             log_error(str.format("Invalid video resolution (not 1280x720 or 1280x800): {0}", res))
 
 
+    # process audio format information
     audio_match = re.search("Audio: (.*)", output)
     if (not audio_match):
         log_error("No audio channel")
+        return False
+
     else :
         audio_info = audio_match.group(1)
         log_info(str.format("Audio Encoding: {0}", audio_info))
 
+    # if no critical errors have occured, the video can be processed
+    return True
 
-def silencedetect(filename):
+
+# the filters are run in a single pass, for faster execution
+# the output of the ffmpeg session that runs these filters is returned
+def runfilters(filename):
     SILENCEDETECT_PARAMS = "noise=-60dB:d=5"
+    BLACKDETECT_PARAMS = "pix_th=0.00:d=1"
 
-    output = check_output(["ffmpeg", "-i", filename, "-af", "silencedetect="+SILENCEDETECT_PARAMS, "-f", "null", "-"],  stderr=STDOUT)
+    output = check_output(["ffmpeg", "-i", filename, "-af", "silencedetect="+SILENCEDETECT_PARAMS, "-vf", "blackdetect="+BLACKDETECT_PARAMS, "-f", "null", "-"],  stderr=STDOUT)
+
+    return output
+
+
+def silencedetect(filename, output):
     lines = re.findall(".*silencedetect.*", output)
 
     # silencedetect information is scattered across multiple lines
@@ -98,7 +117,10 @@ def silencedetect(filename):
 
     # a stack with one silence and no end is characteristic of a silent video
     if (len(silences)==1 and (not "end" in silences[0])):
-        log_error("Silent video")
+        start=silences[0]["start"]
+        start_mins = str.format("{0:02d}:{1:02d}", int(start/60), int(start%60))
+
+        log_error(str.format("Silent video from {0}", start_mins))
         return
 
     # after all the lines have been read, read through the stack and display the results
@@ -120,10 +142,7 @@ def silencedetect(filename):
 
 
 
-def blackdetect(filename):
-    BLACKDETECT_PARAMS = "pix_th=0.00:d=1"
-
-    output = check_output(["ffmpeg", "-i", filename, "-vf", "blackdetect="+BLACKDETECT_PARAMS, "-an", "-f", "null", "-"],  stderr=STDOUT)
+def blackdetect(filename, output):
     lines = re.findall(".*blackdetect.*", output)
 
     for line in lines:
