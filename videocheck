@@ -118,7 +118,7 @@ def silencedetect(filename, output):
     # a stack with one silence and no end is characteristic of a silent video
     if (len(silences)==1 and (not "end" in silences[0])):
         start=silences[0]["start"]
-        start_mins = str.format("{0:02d}:{1:02d}", int(start/60), int(start%60))
+        start_mins = str.format("{0:d}:{1:02d}", int(start/60), int(start%60))
 
         log_error(str.format("Silent video from {0}", start_mins))
         return
@@ -128,11 +128,11 @@ def silencedetect(filename, output):
         # we can ignore silences at the end of the video?
         start = silence["start"]
 
-        start_mins = str.format("{0:02d}:{1:02d}", int(start/60), int(start%60))
+        start_mins = str.format("{0:d}:{1:02d}", int(start/60), int(start%60))
 
         if ("end" in silence):
             end = silence["end"]
-            end_mins = str.format("{0:02d}:{1:02d}", int(end/60), int(end%60))
+            end_mins = str.format("{0:d}:{1:02d}", int(end/60), int(end%60))
 
             duration = silence["duration"]
 
@@ -150,8 +150,8 @@ def blackdetect(filename, output):
         end = math.ceil(float(re.search("black_end:(-?\d+\.\d+)", line).group(1)))
         duration = math.ceil(float(re.search("black_duration:(-?\d+\.\d+)", line).group(1)))
 
-        start_mins = str.format("{0:2d}:{1:2d}", int(start/60), int(start%60))
-        end_mins = str.format("{0:2d}:{1:2d}", int(end/60), int(end%60))
+        start_mins = str.format("{0:d}:{1:02d}", int(start/60), int(start%60))
+        end_mins = str.format("{0:d}:{1:02d}", int(end/60), int(end%60))
 
         log_error(str.format("Black video region found: from {0} to {1} (total {2} seconds)", start_mins, end_mins, int(duration)))
 
