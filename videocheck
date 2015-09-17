@@ -1,11 +1,25 @@
 #!/usr/bin/python
 
-from subprocess32 import check_output, STDOUT
+# todo
+# - audio dc offset?
+# - audio clipping
+# - cropdetect
+
+from subprocess import check_output, STDOUT
 import sys
 import re
 import math
 
-log_info = False
+enable_log_info = False
+silencedetect_duration = 10
+silencedetect_level = "-60dB"
+blackdetect_duration = 1
+blackdetect_level = 0.1
+cropdetect_round = 2
+cropdetect_duration = 1
+volumedetect_level = -0.5
+
+enable_skip_frame = False
 
 
 
@@ -16,7 +30,10 @@ def main():
         # flags
         # Since flags are processed along with the video files (instead of as a separate loop), flags will only take effect for subsequent files.
         if arg == "-v":
-            log_info = True
+            enable_log_info = True
+
+        elif arg == "--fast":
+            enable_skip_frame = True
 
         elif arg == "--help" or arg == "-?":
             print "Usage: videocheck [OPTION]... [FILE]..."
@@ -26,7 +43,9 @@ def main():
             print ""
             print "Options:"
             print "  -v            verbose output, output video encoding info"
-            print "  -?, --help   display this message"
+            print "  -?, --help    display this message"
+            print "  --fast        fast mode, only key frames of the video will be examined"
+            print "                (may introduce inaccuracies)"
             print ""
             print "Example:"
             print "  videocheck *.mp4"
@@ -42,10 +61,13 @@ def main():
             except:
                 log_error("Invalid video file")
             else:
-                if (mediainfo(arg, probeoutput)):
-                    filteroutput=runfilters(arg)
-                    silencedetect(arg, filteroutput)
-                    blackdetect(arg, filteroutput)
+                media_info = parse_media_info(arg, probeoutput)
+                if (media_info["valid"]):
+                    filteroutput=run_filters(arg)
+                    parse_silencedetect(media_info, filteroutput)
+                    parse_blackdetect(media_info, filteroutput)
+                    parse_cropdetect(media_info, filteroutput)
+                    parse_volumedetect(media_info, filteroutput)
 
             print ''
             print ''
@@ -57,7 +79,9 @@ def videoprobe(filename):
 
 # gets basic information about the video file and checks for format errors
 # the "output" parameter is the output of the ffprobe command run on the target video file
-def mediainfo(filename, output):
+def parse_media_info(filename, output):
+
+    media_info = {"filename": filename}
 
     # process duration information
     durations_match = re.search("Duration:\ (\d\d):(\d\d):(\d\d)\.(\d+)", output)
@@ -74,23 +98,43 @@ def mediainfo(filename, output):
         else:
             log_info(str.format("Duration: {0}m {1}s", duration_m, duration_s))
 
+        media_info["duration_h"]=duration_h
+        media_info["duration_m"]=duration_m
+        media_info["duration_s"]=duration_s
+        media_info["duration"] = duration_s+duration_m*60+duration_h*60*60
+
 
     # process video format information
     video_match = re.search("Video: (.*)", output)
     if (not video_match):
         log_error("No video channel")
-        return False
+        media_info["valid"]=False
+        return media_info
 
     else:
         video_info = video_match.group(1)
 
+        media_info["video_info"]=video_info
+
         log_info(str.format("Video Encoding: {0}", video_info))
 
-        res = re.search("\d\d+x\d\d+", video_info).group(0)
+        res_match = re.search("(\d\d+)x(\d\d+)", video_info)
+        res = res_match.group(0)
+        width = int(res_match.group(1))
+        height = int(res_match.group(2))
+
+        media_info["res"]=res
+        media_info["width"]=width
+        media_info["height"]=height
+
         h264 = re.search("h264", video_info)
 
         if (not h264):
             log_error(str.format("Invalid video encoding (not h264): {0}", video_info))
+            media_info["h264"] = False
+
+        else:
+            media_info["h264"] = True
 
         if (res!="1280x800" and res!="1280x720"):
             log_error(str.format("Invalid video resolution (not 1280x720 or 1280x800): {0}", res))
@@ -100,94 +144,142 @@ def mediainfo(filename, output):
     audio_match = re.search("Audio: (.*)", output)
     if (not audio_match):
         log_error("No audio channel")
-        return False
+        media_info["valid"]=False
+        return media_info
 
     else :
         audio_info = audio_match.group(1)
+        media_info["audio_info"] = audio_info
         log_info(str.format("Audio Encoding: {0}", audio_info))
 
     # if no critical errors have occured, the video can be processed
-    return True
+    media_info["valid"]=True
+    return media_info
 
 
 # the filters are run in a single pass, for faster execution
 # the output of the ffmpeg session that runs these filters is returned
-def runfilters(filename):
-    SILENCEDETECT_PARAMS = "noise=-60dB:d=5"
-    BLACKDETECT_PARAMS = "pix_th=0.00:d=1"
+def run_filters(filename):
 
-    output = check_output(["ffmpeg", "-i", filename, "-af", "silencedetect="+SILENCEDETECT_PARAMS, "-vf", "blackdetect="+BLACKDETECT_PARAMS, "-f", "null", "-"],  stderr=STDOUT)
+    # set up parameters to detection filters
+    silencedetect_params = str.format("noise={0}:d={1}", silencedetect_level, silencedetect_duration)
+    blackdetect_params = str.format("pix_th={0}:d={1}", blackdetect_level, blackdetect_duration)
+    cropdetect_params = str.format("reset=1:round={0}:limit={1}", cropdetect_round, blackdetect_level)
 
+    # set up parameters to ffmpeg command
+    params = []
+    if (enable_skip_frame):
+        params += ["-skip_frame", "nokey"]
+    params += ["-i", filename]
+    params += ["-af", "silencedetect="+silencedetect_params + "," + "volumedetect"]
+    params += ["-vf", "blackdetect="+blackdetect_params + "," + "cropdetect="+cropdetect_params]
+    params += ["-f", "null", "-"]
+
+    # run filters and return
+    output = check_output(["ffmpeg"]+params, stderr=STDOUT)
     return output
 
 
-def silencedetect(filename, output):
+def parse_silencedetect(media_info, output):
     lines = re.findall(".*silencedetect.*", output)
 
     # silencedetect information is scattered across multiple lines
     # so we'll accumulate silence period information into a stack
-    silences = []
+    silence_regions = []
     for line in lines:
 
         if (re.search("silence_start", line)) :
             start = math.floor(float(re.search("silence_start:\ (-?\d+\.\d+)", line).group(1)))
-            silences.append({"start": start})
+            silence_regions.append({"start": start})
 
         if (re.search("silence_end", line)) :
             end = math.ceil(float(re.search("silence_end: (-?\d+\.\d+)", line).group(1)))
             duration = math.ceil(float(re.search("silence_duration: (-?\d+\.\d+)", line).group(1)))
-            silence = silences.pop()
+            silence = silence_regions.pop()
             silence["end"]=end
             silence["duration"]=duration
-            silences.append(silence)
+            silence_regions.append(silence)
 
 
-    # a stack with one silence and no end is characteristic of a silent video
-    if (len(silences)==1 and (not "end" in silences[0])):
-        start=silences[0]["start"]
-        start_mins = str.format("{0:d}:{1:02d}", int(start/60), int(start%60))
-
-        log_error(str.format("Silent video from {0}", start_mins))
-        return
 
     # after all the lines have been read, read through the stack and display the results
-    for silence in silences:
-        # we can ignore silences at the end of the video?
-        start = silence["start"]
+    for silence in silence_regions:
+        # we can ignore silence_regions at the end of the video?
 
-        start_mins = str.format("{0:d}:{1:02d}", int(start/60), int(start%60))
-
-        if ("end" in silence):
-            end = silence["end"]
-            end_mins = str.format("{0:d}:{1:02d}", int(end/60), int(end%60))
-
-            duration = silence["duration"]
-
-            log_error(str.format("Silent audio region found: from {0} to {1} (total {2} seconds)", start_mins, end_mins, int(duration)))
+        if not "end" in silence and silence["start"]<1 :
+            log_error("Silent audio found in entire video")
+        elif not "end" in silence:
+            log_error(str.format("Silent audio region found: from {0} to end ({1})", format_minsec(silence["start"]), format_minsec(media_info["duration"])))
         else:
-            log_error(str.format("Silent audio region found: from {0} to end", start_mins))
+            log_error(str.format("Silent audio region found: from {0} to {1} (total {2} seconds)", format_minsec(silence["start"]), format_minsec(silence["end"]), int(silence["duration"])))
 
 
 
-def blackdetect(filename, output):
+def parse_blackdetect(media_info, output):
     lines = re.findall(".*blackdetect.*", output)
 
     for line in lines:
-        start = math.floor(float(re.search("black_start:(-?\d+\.\d+)", line).group(1)))
-        end = math.ceil(float(re.search("black_end:(-?\d+\.\d+)", line).group(1)))
-        duration = math.ceil(float(re.search("black_duration:(-?\d+\.\d+)", line).group(1)))
+        start = math.floor(float(re.search("black_start:(-?\d+(\.\d+)?)", line).group(1)))
+        end = math.ceil(float(re.search("black_end:(-?\d+(\.\d+)?)", line).group(1)))
+        duration = math.ceil(float(re.search("black_duration:(-?\d+(\.\d+)?)", line).group(1)))
 
-        start_mins = str.format("{0:d}:{1:02d}", int(start/60), int(start%60))
-        end_mins = str.format("{0:d}:{1:02d}", int(end/60), int(end%60))
+        log_error(str.format("Black video region found: from {0} to {1} (total {2} seconds)", format_minsec(start), format_minsec(end), int(duration)))
 
-        log_error(str.format("Black video region found: from {0} to {1} (total {2} seconds)", start_mins, end_mins, int(duration)))
+def parse_cropdetect(media_info, output):
+        lines = re.findall(".*cropdetect.*", output)
 
+        crop_regions = []
+        in_crop_region = False
+
+        for line in lines:
+            width = int(re.search("crop=(-?\d+):-?\d+", line).group(1))
+            height = int(re.search("crop=-?\d+:(-?\d+)", line).group(1))
+            time = float(re.search("t:(-?\d+.\d+)", line).group(1))
+
+            # find the start of a cropped region
+            # note: a negative width and height indicates an entirely black frame, we can ignore this because it should be detected by blackdetect
+            if (not width<0 and not height<0) and (width!=media_info["width"] or height!=media_info["height"]):
+                if not in_crop_region:
+                    in_crop_region = True
+                    crop = {"start": time, "width":width, "height":height}
+                    crop_regions.append(crop)
+            else:
+                if in_crop_region:
+                    in_crop_region = False
+                    crop_region = crop_regions.pop()
+                    crop_region["end"] = time
+                    crop_regions.append(crop_region)
+
+        for crop in crop_regions:
+            if not "end" in crop and crop["start"]<1:
+                log_error(str.format("Black border found on entire video (active area {0}x{1})", crop["width"], crop["height"]))
+            elif not "end" in crop:
+                log_error(str.format("Black border region found (active area {2}x{3}): from {0} to end ({1})", format_minsec(crop["start"]), format_minsec(media_info["duration"]), crop["width"], crop["height"]))
+            elif (crop["end"]-crop["start"]) > cropdetect_duration:
+                log_error(str.format("Black border region found (active area {2}x{3}): from {0} to {1}", format_minsec(crop["start"]), format_minsec(crop["end"]), crop["width"], crop["height"]))
+
+def parse_volumedetect(media_info, output):
+    #lines = re.findall(".*volumedetect.*", output)
+
+    max_volume = float(re.search(".*volumedetect.*max_volume: (-?\d+(\.\d+)?) dB", output).group(1))
+
+    if max_volume > volumedetect_level:
+        log_error(str.format("Possible clipping: maximum volume {0} dB", max_volume))
+
+    log_info(str.format("Maximum volume {0} dB", max_volume))
+
+# formats the given time in seconds to a minutes:seconds string
+def format_minsec(time_seconds):
+    return str.format("{0:d}:{1:02d}", int(time_seconds/60), int(time_seconds%60))
+
+# logs errors
 def log_error(msg):
     print " - (error)", msg
 
 
+# logs info messages if they are enabled
 def log_info(msg):
-    if (log_info):
+    if (enable_log_info):
         print " - (info) ", msg
 
 

@@ -14,6 +14,7 @@ flag |
 - | -
 `-v`          | verbose output, output video encoding info
 `-?, --help`  | display usage information
+`--fast`      | fast mode, only key frames of the video will be examined (may introduce inaccuracies)
 
 ## Example
 
