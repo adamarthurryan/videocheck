@@ -14,7 +14,7 @@ enable_log_info = False
 silencedetect_duration = 10
 silencedetect_level = "-60dB"
 blackdetect_duration = 1
-blackdetect_level = 0.1
+blackdetect_level = 0.0
 cropdetect_round = 2
 cropdetect_duration = 1
 volumedetect_level = -0.5
@@ -26,6 +26,7 @@ enable_skip_frame = False
 def main():
     # process arguments
     for arg in sys.argv[1:]:
+        global enable_skip_frame, enable_log_info
 
         # flags
         # Since flags are processed along with the video files (instead of as a separate loop), flags will only take effect for subsequent files.
@@ -279,7 +280,7 @@ def log_error(msg):
 
 # logs info messages if they are enabled
 def log_info(msg):
-    if (enable_log_info):
+    if enable_log_info:
         print " - (info) ", msg
 
 
