@@ -20,10 +20,15 @@ cropdetect_duration = 1
 volumedetect_level = -0.5
 
 enable_skip_frame = False
-
+enable_output_color = False
 
 
 def main():
+
+    if sys.stdout.isatty():
+        global enable_output_color 
+        enable_output_color = True
+
     # process arguments
     for arg in sys.argv[1:]:
         global enable_skip_frame, enable_log_info
@@ -275,7 +280,15 @@ def format_minsec(time_seconds):
 
 # logs errors
 def log_error(msg):
-    print " - (error)", msg
+    prefix = ""
+    postfix =""
+
+    if enable_output_color:
+        prefix = "\033[1;31m"
+        postfix ="\033[1;m"
+
+
+    print prefix+" - (error)", msg, postfix
 
 
 # logs info messages if they are enabled
