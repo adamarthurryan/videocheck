@@ -20,7 +20,7 @@ cropdetect_duration = 1
 volumedetect_level = -0.5
 
 enable_skip_frame = False
-enable_output_color = False
+enable_output_color = True
 enable_info_only = False
 
 
@@ -30,9 +30,11 @@ def main():
         global enable_output_color 
         enable_output_color = True
 
+    total_duration = 0;
+
     # process arguments
     for arg in sys.argv[1:]:
-        global enable_skip_frame, enable_log_info
+        global enable_skip_frame, enable_log_info, enable_info_only
 
         # flags
         # Since flags are processed along with the video files (instead of as a separate loop), flags will only take effect for subsequent files.
@@ -75,15 +77,20 @@ def main():
                 media_info = parse_media_info(arg, probeoutput)
 
 
-                if (media_info["valid"] and not enable_info_only):
-                    filteroutput=run_filters(arg)
-                    parse_silencedetect(media_info, filteroutput)
-                    parse_blackdetect(media_info, filteroutput)
-                    parse_cropdetect(media_info, filteroutput)
-                    parse_volumedetect(media_info, filteroutput)
+                if media_info["valid"]:
+
+                    total_duration += media_info["duration"]
+
+                    if not enable_info_only:
+                        filteroutput=run_filters(arg)
+                        parse_silencedetect(media_info, filteroutput)
+                        parse_blackdetect(media_info, filteroutput)
+                        parse_cropdetect(media_info, filteroutput)
+                        parse_volumedetect(media_info, filteroutput)
 
             print ''
-            print ''
+
+    log_stat("Total duration: "+format_minsec(total_duration))
 
 # this function should throw an exception if the video file is not valid
 def videoprobe(filename):
@@ -285,23 +292,30 @@ def parse_volumedetect(media_info, output):
 def format_minsec(time_seconds):
     return str.format("{0:d}:{1:02d}", int(time_seconds/60), int(time_seconds%60))
 
-# logs errors
-def log_error(msg):
+# logs the message with the given color
+def log_with_color(msg, color):
     prefix = ""
     postfix =""
 
     if enable_output_color:
-        prefix = "\033[1;31m"
+        prefix = "\033[1;"+str(color)+"m"
         postfix ="\033[1;m"
 
+    print prefix+msg+postfix
 
-    print prefix+" - (error)", msg, postfix
-
+# logs errors
+def log_error(msg):
+    log_with_color(" - (error)"+msg, 31)
 
 # logs info messages if they are enabled
 def log_info(msg):
     if enable_log_info:
         print " - (info) ", msg
+
+def log_stat(msg):
+    if enable_output_color:
+        log_with_color("_ "+msg+" _", 33)
+
 
 
 main()
