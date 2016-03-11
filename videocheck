@@ -243,7 +243,8 @@ def parse_blackdetect(media_info, output):
         end = math.ceil(float(re.search("black_end:(-?\d+(\.\d+)?)", line).group(1)))
         duration = math.ceil(float(re.search("black_duration:(-?\d+(\.\d+)?)", line).group(1)))
 
-        log_error(str.format("Black video region found: from {0} to {1} (total {2} seconds)", format_minsec(start), format_minsec(end), int(duration)))
+        if not (start == 0 and ((enable_skip_frame and end<=5) or end<=1)) :
+            log_error(str.format("Black video region found: from {0} to {1} (total {2} seconds)", format_minsec(start), format_minsec(end), int(duration)))
 
 def parse_cropdetect(media_info, output):
         lines = re.findall(".*cropdetect.*", output)
